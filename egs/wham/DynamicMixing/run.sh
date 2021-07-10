@@ -1,22 +1,23 @@
 #!/bin/bash
 
-set -e  # Exit on error
+# Exit on error
+set -e
+set -o pipefail
+
 # Main storage directory. You'll need disk space to dump the WHAM mixtures and the wsj0 wav
 # files if you start from sphere files.
-storage_dir=/media/sam/Data/
-#storage_dir=/srv/storage/talc3@talc-data.nancy/multispeech/calcul/users/mpariente/DATA/wsj0_wav
-
+storage_dir=
 
 # If you start from the sphere files, specify the path to the directory and start from stage 0
 sphere_dir=  # Directory containing sphere files
 # If you already have wsj0 wav files, specify the path to the directory here and start from stage 1
-wsj0_wav_dir=${storage_dir}/WSJ/WSJ/wsj0/
+wsj0_wav_dir=
 # If you already have the WHAM mixtures, specify the path to the directory here and start from stage 2
-wham_wav_dir=${storage_dir}/WSJ/wham_scripts/2speakers_wham/
+wham_wav_dir=
 # After running the recipe a first time, you can run it from stage 3 directly to train new models.
 
-# we use directly wsj0 for data-augmentation. Because original WSJ0 is 16k we copy the data and downsample it offline
-# to use for 8k separation training. This is accomlished in step 3. If only 16k separation is desired one can skip
+# We directly use wsj0 for data-augmentation. Because original WSJ0 is 16k we copy the data and downsample it offline
+# to use for 8k separation training. This is accomplished in step 3. If only 16k separation is desired one can skip
 # stage 3.
 wsj0_wav_dir_8k=data/wsj0_8k_train
 
@@ -32,7 +33,7 @@ python_path=python
 stage=3  # Controls from which stage to start
 tag=""  # Controls the directory name associated to the experiment
 # You can ask for several GPUs using id (passed to CUDA_VISIBLE_DEVICES)
-id=0
+id=$CUDA_VISIBLE_DEVICES
 
 # Data
 data_dir=data  # Local data directory (No disk space needed)
@@ -56,44 +57,35 @@ eval_use_gpu=1
 
 . utils/parse_options.sh
 
-## check if sox is installed
-if ! [ -x "$(command -v sox)" ] ; then
-  echo "This recipe requires SoX and pythound-audio-effects: https://github.com/carlthome/python-audio-effects. Exiting."
-  exit
+sr_string=$(($sample_rate/1000))
+suffix=wav${sr_string}k/$mode
+dumpdir=data/$suffix  # directory to put generated json file
+
+train_dir=$dumpdir/tr
+valid_dir=$dumpdir/cv
+test_dir=$dumpdir/tt
+
+# Check if sox is installed
+if ! [[ -x "$(command -v sox)" ]] ; then
+  echo "This recipe requires SoX, Install sox with `conda install -c conda-forge sox`. Exiting."
+  exit 1
 fi
 
+# Install pysndfx if not instaled
 if not python -c "import pysndfx" &> /dev/null; then
-    echo 'This recipe requires pysndfx. Please install with pip install pysndfx. Exiting.'
-    exit
+    echo 'This recipe requires pysndfx. Installing requirements.'
+    $python_path -m pip install -r requirements.txt
 fi
-
-if [[ $stage -le  -1 ]]; then
-	echo "Stage -1: Creating python environment to run this"
-	if [[ -x "${python_path}" ]]
-	then
-		echo "The provided python path is executable, don't proceed to installation."
-	else
-	  . utils/prepare_python_env.sh --install_dir $python_path --asteroid_root ../../..
-	  echo "Miniconda3 install can be found at $python_path"
-	  python_path=${python_path}/miniconda3/bin/python
-	  echo -e "\n To use this python version for the next experiments, change"
-	  echo -e "python_path=$python_path at the beginning of the file \n"
-	fi
-fi
-
-
 
 if [[ $stage -le  0 ]]; then
   echo "Stage 0: Converting sphere files to wav files"
   . local/convert_sphere2wav.sh --sphere_dir $sphere_dir --wav_dir $wsj0_wav_dir
 fi
 
-
 if [[ $stage -le  1 ]]; then
 	echo "Stage 1: Generating 8k and 16k WHAM dataset"
   . local/prepare_data.sh --wav_dir $wsj0_wav_dir --out_dir $wham_wav_dir --python_path $python_path
 fi
-
 
 if [[ $stage -le  2 ]]; then
 	# Make json directories with min/max modes and sampling rates
@@ -115,14 +107,6 @@ if [[ $stage -le 3 ]]; then
 
 fi
 
-sr_string=$(($sample_rate/1000))
-suffix=wav${sr_string}k/$mode
-dumpdir=data/$suffix  # directory to put generated json file
-
-train_dir=$dumpdir/tr
-valid_dir=$dumpdir/cv
-test_dir=$dumpdir/tt
-
 # Generate a random ID for the run if no tag is specified
 uuid=$($python_path -c 'import uuid, sys; print(str(uuid.uuid4())[:8])')
 if [[ -z ${tag} ]]; then
@@ -132,30 +116,30 @@ expdir=exp/train_dprnn_${tag}
 mkdir -p $expdir && echo $uuid >> $expdir/run_uuid.txt
 echo "Results from the following experiment will be stored in $expdir"
 
-
 if [[ $stage -le 4 ]]; then
   echo "Stage 4: Training"
   mkdir -p logs
   CUDA_VISIBLE_DEVICES=$id $python_path train.py \
-  --train_dir $train_dir \
-  --valid_dir $valid_dir \
-  --task $task \
-  --sample_rate $sample_rate \
-  --lr $lr \
-  --epochs $epochs \
-  --batch_size $batch_size \
-  --num_workers $num_workers \
-  --kernel_size $kernel_size \
-  --stride $stride \
-  --exp_dir ${expdir}/ | tee logs/train_${tag}.log
+		--train_dir $train_dir \
+		--valid_dir $valid_dir \
+		--task $task \
+		--sample_rate $sample_rate \
+		--lr $lr \
+		--epochs $epochs \
+		--batch_size $batch_size \
+		--num_workers $num_workers \
+		--kernel_size $kernel_size \
+		--stride $stride \
+		--exp_dir ${expdir}/ | tee logs/train_${tag}.log
+	cp logs/train_${tag}.log $expdir/train.log
 fi
-
 
 if [[ $stage -le 5 ]]; then
 	echo "Stage 5 : Evaluation"
 	CUDA_VISIBLE_DEVICES=$id $python_path eval.py \
-	--task $task \
-	--test_dir $test_dir \
-	--use_gpu $eval_use_gpu \
-	--exp_dir ${expdir}
+		--task $task \
+		--test_dir $test_dir \
+		--use_gpu $eval_use_gpu \
+		--exp_dir ${expdir} | tee logs/eval_${tag}.log
+	cp logs/eval_${tag}.log $expdir/eval.log
 fi

@@ -1,6 +1,9 @@
 #!/bin/bash
 
-set -e  # Exit on error
+# Exit on error
+set -e
+set -o pipefail
+
 # Main storage directory. You'll need disk space to dump the WHAM mixtures and the wsj0 wav
 # files if you start from sphere files.
 storage_dir=
@@ -15,17 +18,16 @@ wham_wav_dir=
 
 # Path to the python you'll use for the experiment. Defaults to the current python
 # You can run ./utils/prepare_python_env.sh to create a suitable python environment, paste the output here.
-#python_path=${storage_dir}/asteroid_conda/miniconda3/bin/python
 python_path=python
 
 # Example usage
 # ./run.sh --stage 3 --tag my_tag --task sep_noisy --id 0,1
 
 # General
-stage=-1  # Controls from which stage to start
+stage=0  # Controls from which stage to start
 tag=""  # Controls the directory name associated to the experiment
 # You can ask for several GPUs using id (passed to CUDA_VISIBLE_DEVICES)
-id=
+id=$CUDA_VISIBLE_DEVICES
 
 # Data
 data_dir=data  # Local data directory (No disk space needed)
@@ -41,7 +43,7 @@ filterbank_n_basis=128
 filterbank_kernel_size=21
 
 # Training
-f_batch_size=4
+f_batch_size=64
 s_batch_size=4
 f_num_workers=4
 s_num_workers=4
@@ -49,12 +51,12 @@ f_optimizer=adam
 s_optimizer=adam
 f_lr=0.0005
 s_lr=0.001
-f_epochs=50
-s_epochs=200
+f_epochs=500
+s_epochs=400
 
 # Architecture
 n_blocks=8
-n_repeats=3
+n_repeats=4
 
 # Evaluation
 eval_use_gpu=0
@@ -62,33 +64,23 @@ eval_use_gpu=0
 
 . utils/parse_options.sh
 
+sr_string=$(($sample_rate/1000))
+suffix=wav${sr_string}k/$mode
+dumpdir=$data_dir/$suffix  # directory to put generated json file
 
-if [[ $stage -le  -1 ]]; then
-	echo "Stage -1: Creating python environment to run this"
-	if [[ -x "${python_path}" ]]
-	then
-		echo "The provided python path is executable, don't proceed to installation."
-	else
-	  . utils/prepare_python_env.sh --install_dir $python_path --asteroid_root ../../..
-	  echo "Miniconda3 install can be found at $python_path"
-	  python_path=${python_path}/miniconda3/bin/python
-	  echo -e "\n To use this python version for the next experiments, change"
-	  echo -e "python_path=$python_path at the beginning of the file \n"
-	fi
-fi
-
+train_dir=$dumpdir/tr
+valid_dir=$dumpdir/cv
+test_dir=$dumpdir/tt
 
 if [[ $stage -le  0 ]]; then
   echo "Stage 0: Converting sphere files to wav files"
   . local/convert_sphere2wav.sh --sphere_dir $sphere_dir --wav_dir $wsj0_wav_dir
 fi
 
-
 if [[ $stage -le  1 ]]; then
 	echo "Stage 1: Generating 8k and 16k WHAM dataset"
   . local/prepare_data.sh --wav_dir $wsj0_wav_dir --out_dir $wham_wav_dir --python_path $python_path
 fi
-
 
 if [[ $stage -le  2 ]]; then
 	# Make json directories with min/max modes and sampling rates
@@ -104,60 +96,48 @@ if [[ $stage -le  2 ]]; then
   done
 fi
 
-sr_string=$(($sample_rate/1000))
-suffix=wav${sr_string}k/$mode
-dumpdir=$data_dir/$suffix  # directory to put generated json file
-
-train_dir=$dumpdir/tr
-valid_dir=$dumpdir/cv
-test_dir=$dumpdir/tt
-
-#tag=${task}_${sr_string}k${mode}
-#expdir=exp/train_two_step_${tag}
-
 # Generate a random ID for the run if no tag is specified
 uuid=$($python_path -c 'import uuid, sys; print(str(uuid.uuid4())[:8])')
 if [[ -z ${tag} ]]; then
 	tag=${task}_${sr_string}k${mode}_${uuid}
 fi
 expdir=exp/train_twostep_${tag}
-
 mkdir -p $expdir
 echo "Results from the following experiment will be stored in $expdir"
-
 
 if [[ $stage -le 3 ]]; then
   echo "Stage 3: Training"
   mkdir -p logs
   CUDA_VISIBLE_DEVICES=$id $python_path train.py \
-  --train_dir $train_dir \
-  --valid_dir $valid_dir \
-  --task $task \
-  --sample_rate $sample_rate \
-  --f_lr $f_lr \
-  --s_lr $s_lr \
-  --f_epochs $f_epochs  \
-  --s_epochs $s_epochs  \
-  --f_optimizer $f_optimizer  \
-  --s_optimizer $s_optimizer  \
-  --f_batch_size $f_batch_size \
-  --s_batch_size $s_batch_size \
-  --f_num_workers $f_num_workers \
-  --s_num_workers $s_num_workers \
-  --n_blocks $n_blocks \
-  --n_repeats $n_repeats \
-  --n_filters $filterbank_n_basis \
-  --kernel_size $filterbank_kernel_size \
-  --reuse_pretrained_filterbank $reuse_pretrained_filterbank \
-  --exp_dir ${expdir}/ | tee logs/train_${tag}.log
+		--train_dir $train_dir \
+		--valid_dir $valid_dir \
+		--task $task \
+		--sample_rate $sample_rate \
+		--f_lr $f_lr \
+		--s_lr $s_lr \
+		--f_epochs $f_epochs  \
+		--s_epochs $s_epochs  \
+		--f_optimizer $f_optimizer  \
+		--s_optimizer $s_optimizer  \
+		--f_batch_size $f_batch_size \
+		--s_batch_size $s_batch_size \
+		--f_num_workers $f_num_workers \
+		--s_num_workers $s_num_workers \
+		--n_blocks $n_blocks \
+		--n_repeats $n_repeats \
+		--n_filters $filterbank_n_basis \
+		--kernel_size $filterbank_kernel_size \
+		--reuse_pretrained_filterbank $reuse_pretrained_filterbank \
+		--exp_dir ${expdir}/ | tee logs/train_${tag}.log
+	cp logs/train_${tag}.log $expdir/train.log
 fi
-
 
 if [[ $stage -le 4 ]]; then
 	echo "Stage 4 : Evaluation"
 	CUDA_VISIBLE_DEVICES=$id $python_path eval.py \
-	--task $task \
-	--test_dir $test_dir \
-	--use_gpu $eval_use_gpu \
-	--exp_dir ${expdir}
+		--task $task \
+		--test_dir $test_dir \
+		--use_gpu $eval_use_gpu \
+		--exp_dir ${expdir} | tee logs/eval_${tag}.log
+	cp logs/eval_${tag}.log $expdir/eval.log
 fi

@@ -1,7 +1,11 @@
 #!/bin/bash
 
+# Exit on error
+set -e
+set -o pipefail
+
 # Main storage directory
-storage_dir=../data
+storage_dir=
 
 # If you want to download the development dataset, specify which dataset you want to download
 # Set both variable to true if you want to download the dry and reverberated datasets 
@@ -21,7 +25,6 @@ fuss_dir=
 
 # Path to the python you'll use for the experiment. Defaults to the current python
 # You can run ./utils/prepare_python_env.sh to create a suitable python environment, paste the output here.
-#python_path=${storage_dir}/asteroid_conda/miniconda3/bin/python
 python_path=python
 
 # Example usage
@@ -31,7 +34,7 @@ python_path=python
 stage=0  # Controls from which stage to start
 tag=""  # Controls the directory name associated to the experiment
 # You can ask for several GPUs using id (passed to CUDA_VISIBLE_DEVICES)
-id=
+id=$CUDA_VISIBLE_DEVICES
 
 
 # Data
