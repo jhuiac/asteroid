@@ -1,6 +1,7 @@
 """
 This script can be used to get dB lvl stats for WHAM sources and noise.
 """
+
 import soundfile as sf
 from glob import glob
 import os
@@ -34,5 +35,15 @@ for mode in ["min", "max"]:
 
             joint_src_stats.append([c_s1_lvl, c_s2_lvl, noises_lvl])
 
-        plt.hist2d([x[0] for x in joint_src_stats], [x[1] for x in joint_src_stats], 100, [[-50, 0], [-50, 0]])
-        plt.hist2d([x[0] for x in joint_src_stats], [x[2] for x in joint_src_stats], 100, [[-50, 0], [-50, 0]])
+        plt.hist2d(
+            [x[0] for x in joint_src_stats],
+            [x[1] for x in joint_src_stats],
+            100,
+            [[-50, 0], [-50, 0]],
+        )
+        plt.hist2d(
+            [x[0] for x in joint_src_stats],
+            [x[2] for x in joint_src_stats],
+            100,
+            [[-50, 0], [-50, 0]],
+        )

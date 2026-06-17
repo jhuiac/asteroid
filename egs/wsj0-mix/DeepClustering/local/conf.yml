@@ -1,30 +1,33 @@
 # Filterbank config
 filterbank:
-  n_filters: 512
-  kernel_size: 512
-  stride: 256
+  n_filters: 256
+  kernel_size: 256
+  stride: 64
+# Network config
+masknet:
+  rnn_type: lstm
+  n_layers: 4
+  hidden_size: 600
+  dropout: 0.3
+  embedding_dim: 40
+  take_log: y
 # Training config
 training:
-  epochs: 100
+  epochs: 200
+  batch_size: 32
+  num_workers: 8
   half_lr: yes
   early_stop: yes
-  max_norm: 5
-  checkpoint: n
-  continue_from:
+  loss_alpha: 1.0  # DC loss weight : 1.0 => DC, <1.0 => Chimera
 # Optim config
 optim:
-  optimizer: adam
-  lr: 0.001
-  weight_decay: 0.
+  optimizer: rmsprop
+  lr: 0.0001
+  weight_decay: 0.00000
+#  momentum: 0.9
 # Data config
 data:
-  tr_wav_len_list: /srv/storage/talc3@talc-data.nancy/multispeech/calcul/users/ssivasankaran/experiments/data/speech_separation/wsj0-mix/2speakers_reverb_kinect_chime_noise_corrected/wav16k/max/tr.wavid.sample.10
-  cv_wav_len_list: /srv/storage/talc3@talc-data.nancy/multispeech/calcul/users/ssivasankaran/experiments/data/speech_separation/wsj0-mix/2speakers_reverb_kinect_chime_noise_corrected/wav16k/max/cv.wavid.sample.10
-  wav_base_path: /srv/storage/talc3@talc-data.nancy/multispeech/calcul/users/ssivasankaran/experiments/data/speech_separation/wsj0-mix/2speakers_reverb_kinect_chime_noise_corrected/wav16k/max/
-  task: sep_clean
-  nondefault_nsrc:
-  sample_rate: 16000
-  mode: max
-  batch_size: 3
-  num_workers: 4
-  segment: 1 # Segment length in seconds for training
+  train_dir: data/wav8k/min/tr/
+  valid_dir: data/wav8k/min/cv/
+  n_src: 2
+  sample_rate: 8000
